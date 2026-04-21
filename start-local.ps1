@@ -59,7 +59,7 @@ if (Test-Path $localEnvPath) {
     Import-DotEnvFile -Path $localEnvPath
 }
 
-$env:UPSTREAM_MODE = if ($env:UPSTREAM_MODE) { $env:UPSTREAM_MODE } else { "volcengine" }
+$env:UPSTREAM_MODE = "aliyun_split"
 $env:UPSTREAM_RESOURCE_ID = if ($env:UPSTREAM_RESOURCE_ID) { $env:UPSTREAM_RESOURCE_ID } else { "volc.speech.dialog" }
 $env:DEFAULT_AVATAR_URL = "/models/panda-v2.glb"
 $env:DEFAULT_MODEL_FAMILY = "O2.0"

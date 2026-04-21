@@ -314,7 +314,7 @@ async function startPythonBackend(): Promise<void> {
     {
       port: BACKEND_PORT,
       userDataPath,
-      startupTimeout: 60000,
+      startupTimeout: 180000, // 3 分钟，给慢机器/开机高峰期更多时间
     },
     {
       onReady: () => {

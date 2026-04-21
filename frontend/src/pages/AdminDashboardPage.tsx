@@ -56,12 +56,14 @@ const autoEndModeLabelMap: Record<AutoEndMode, string> = {
 const upstreamModeOptions: Array<{ value: UpstreamMode; label: string }> = [
   { value: "volcengine", label: "火山云实时语音" },
   { value: "qwen", label: "通义千问实时语音" },
+  { value: "aliyun_split", label: "阿里云分离链路 (ASR+LLM+TTS)" },
   { value: "mock", label: "Mock 本地兜底" },
 ];
 
 const upstreamModeLabelMap: Record<UpstreamMode, string> = {
   volcengine: "火山云实时语音",
   qwen: "通义千问实时语音",
+  aliyun_split: "阿里云分离链路 (ASR+LLM+TTS)",
   mock: "Mock 本地兜底",
 };
 
@@ -73,6 +75,11 @@ const DEFAULT_UPSTREAM_APP_KEY = "PlgvMymc7f3tQnJ6";
 const DEFAULT_QWEN_BASE_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime";
 const DEFAULT_QWEN_MODEL = "qwen3.5-omni-flash-realtime";
 const DEFAULT_QWEN_VOICE = "Momo";
+const DEFAULT_ALIYUN_ASR_MODEL = "paraformer-realtime-v2";
+const DEFAULT_ALIYUN_LLM_MODEL = "qwen3.5-flash";
+const DEFAULT_ALIYUN_TTS_MODEL = "cosyvoice-v3-flash";
+const DEFAULT_ALIYUN_TTS_VOICE = "longjielidou_v3";
+const DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE = 800;
 
 const qwenVoiceOptions = [
   { value: "Momo", label: "茉兔 Momo — 撞娇搞怪，逗你开心" },
@@ -101,6 +108,11 @@ interface UpstreamFormValues {
   qwen_base_url: string;
   qwen_model: string;
   qwen_voice: string;
+  aliyun_asr_model: string;
+  aliyun_llm_model: string;
+  aliyun_tts_model: string;
+  aliyun_tts_voice: string;
+  aliyun_asr_max_sentence_silence: number;
 }
 
 function buildTrimmedRequiredRule(messageText: string) {
@@ -197,6 +209,10 @@ function formatUpstreamMeta(config: UpstreamConfigResponse | null): string {
     keyText = config.qwen_api_key_configured
       ? `，API Key：${config.qwen_api_key_masked ?? "已配置"}`
       : "，API Key：未配置";
+  } else if (config.mode === "aliyun_split") {
+    keyText = config.qwen_api_key_configured
+      ? `，DashScope API Key：${config.qwen_api_key_masked ?? "已配置"}`
+      : "，DashScope API Key：未配置";
   }
 
   return `当前模式：${upstreamModeLabelMap[config.mode]}，最近更新时间：${config.updated_at}${actorText}${keyText}`;
@@ -262,6 +278,11 @@ export function AdminDashboardPage() {
         qwen_base_url: currentUpstreamConfig.qwen_base_url || DEFAULT_QWEN_BASE_URL,
         qwen_model: currentUpstreamConfig.qwen_model || DEFAULT_QWEN_MODEL,
         qwen_voice: currentUpstreamConfig.qwen_voice || DEFAULT_QWEN_VOICE,
+        aliyun_asr_model: currentUpstreamConfig.aliyun_asr_model || DEFAULT_ALIYUN_ASR_MODEL,
+        aliyun_llm_model: currentUpstreamConfig.aliyun_llm_model || DEFAULT_ALIYUN_LLM_MODEL,
+        aliyun_tts_model: currentUpstreamConfig.aliyun_tts_model || DEFAULT_ALIYUN_TTS_MODEL,
+        aliyun_tts_voice: currentUpstreamConfig.aliyun_tts_voice || DEFAULT_ALIYUN_TTS_VOICE,
+        aliyun_asr_max_sentence_silence: currentUpstreamConfig.aliyun_asr_max_sentence_silence || DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE,
       });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "后台加载失败。");
@@ -295,6 +316,7 @@ export function AdminDashboardPage() {
   const buildUpstreamPayload = (values: UpstreamFormValues): UpstreamConfigUpdateRequest => {
     const isVolc = values.mode === "volcengine";
     const isQwen = values.mode === "qwen";
+    const isAliyunSplit = values.mode === "aliyun_split";
     return {
       mode: values.mode,
       base_url: isVolc ? (values.base_url?.trim() || DEFAULT_UPSTREAM_BASE_URL) : (upstreamConfig?.base_url || DEFAULT_UPSTREAM_BASE_URL),
@@ -302,10 +324,15 @@ export function AdminDashboardPage() {
       access_key: isVolc ? (values.access_key?.trim() || "") : undefined,
       resource_id: isVolc ? (values.resource_id?.trim() || DEFAULT_UPSTREAM_RESOURCE_ID) : (upstreamConfig?.resource_id || DEFAULT_UPSTREAM_RESOURCE_ID),
       app_key: isVolc ? (values.app_key?.trim() || DEFAULT_UPSTREAM_APP_KEY) : (upstreamConfig?.app_key || DEFAULT_UPSTREAM_APP_KEY),
-      qwen_api_key: isQwen ? (values.qwen_api_key?.trim() || "") : undefined,
+      qwen_api_key: (isQwen || isAliyunSplit) ? (values.qwen_api_key?.trim() || "") : undefined,
       qwen_base_url: isQwen ? (values.qwen_base_url?.trim() || DEFAULT_QWEN_BASE_URL) : (upstreamConfig?.qwen_base_url || DEFAULT_QWEN_BASE_URL),
       qwen_model: isQwen ? (values.qwen_model?.trim() || DEFAULT_QWEN_MODEL) : (upstreamConfig?.qwen_model || DEFAULT_QWEN_MODEL),
       qwen_voice: isQwen ? (values.qwen_voice?.trim() || DEFAULT_QWEN_VOICE) : (upstreamConfig?.qwen_voice || DEFAULT_QWEN_VOICE),
+      aliyun_asr_model: isAliyunSplit ? (values.aliyun_asr_model?.trim() || DEFAULT_ALIYUN_ASR_MODEL) : (upstreamConfig?.aliyun_asr_model || DEFAULT_ALIYUN_ASR_MODEL),
+      aliyun_llm_model: isAliyunSplit ? (values.aliyun_llm_model?.trim() || DEFAULT_ALIYUN_LLM_MODEL) : (upstreamConfig?.aliyun_llm_model || DEFAULT_ALIYUN_LLM_MODEL),
+      aliyun_tts_model: isAliyunSplit ? (values.aliyun_tts_model?.trim() || DEFAULT_ALIYUN_TTS_MODEL) : (upstreamConfig?.aliyun_tts_model || DEFAULT_ALIYUN_TTS_MODEL),
+      aliyun_tts_voice: isAliyunSplit ? (values.aliyun_tts_voice?.trim() || DEFAULT_ALIYUN_TTS_VOICE) : (upstreamConfig?.aliyun_tts_voice || DEFAULT_ALIYUN_TTS_VOICE),
+      aliyun_asr_max_sentence_silence: isAliyunSplit ? (values.aliyun_asr_max_sentence_silence || DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE) : (upstreamConfig?.aliyun_asr_max_sentence_silence || DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE),
     };
   };
 
@@ -338,6 +365,7 @@ export function AdminDashboardPage() {
       const modeMessages: Record<UpstreamMode, string> = {
         volcengine: "火山云实时语音配置已保存，新会话会使用新配置。",
         qwen: "通义千问实时语音配置已保存，新会话会使用新配置。",
+        aliyun_split: "阿里云分离链路配置已保存，新会话会使用新配置。",
         mock: "已切换为 Mock 模式，新会话将不再连接上游。",
       };
       message.success(modeMessages[values.mode]);
@@ -530,6 +558,49 @@ export function AdminDashboardPage() {
                     name="qwen_voice"
                   >
                     <Select popupClassName="admin-select-dropdown" options={qwenVoiceOptions} />
+                  </Form.Item>
+                </div>
+              </section>
+            )}
+
+            {currentUpstreamMode === "aliyun_split" && (
+              <section className="admin-form-section">
+                <h3>阿里云分离链路配置</h3>
+                <div className="form-grid">
+                  <Form.Item
+                    label="DashScope API Key"
+                    name="qwen_api_key"
+                    rules={[{ required: true, message: "请输入 DashScope API Key" }]}
+                  >
+                    <Input.Password
+                      autoComplete="new-password"
+                      placeholder={
+                        upstreamConfig?.qwen_api_key_configured
+                          ? "留空保留原值，或输入新 Key"
+                          : "请输入 DashScope API Key"
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item label="ASR 模型" name="aliyun_asr_model">
+                    <Input placeholder={DEFAULT_ALIYUN_ASR_MODEL} />
+                  </Form.Item>
+                  <Form.Item label="LLM 模型" name="aliyun_llm_model">
+                    <Input placeholder={DEFAULT_ALIYUN_LLM_MODEL} />
+                  </Form.Item>
+                  <Form.Item label="TTS 模型" name="aliyun_tts_model">
+                    <Input placeholder={DEFAULT_ALIYUN_TTS_MODEL} />
+                  </Form.Item>
+                  <Form.Item label="TTS 音色" name="aliyun_tts_voice">
+                    <Input placeholder={DEFAULT_ALIYUN_TTS_VOICE} />
+                  </Form.Item>
+                  <Form.Item label="VAD 静音阈值 (ms)" name="aliyun_asr_max_sentence_silence">
+                    <InputNumber
+                      min={200}
+                      max={6000}
+                      step={100}
+                      style={{ width: "100%" }}
+                      placeholder={String(DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE)}
+                    />
                   </Form.Item>
                 </div>
               </section>

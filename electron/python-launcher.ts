@@ -23,10 +23,10 @@ interface LauncherEvents {
 
 const DEFAULT_CONFIG = {
   port: 4800,
-  startupTimeout: 30000,
+  startupTimeout: 180000, // 3 分钟，给开机时磁盘 I/O 高峰期更多时间
   healthCheckInterval: 5000,
-  maxRestarts: 3,
-  restartCooldown: 5000,
+  maxRestarts: 10, // 增加重试次数到 10 次，开机时可能需要多次尝试
+  restartCooldown: 10000, // 重启间隔增加到 10 秒，让系统有时间释放资源
 };
 
 /**
@@ -49,6 +49,20 @@ export class PythonLauncher {
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private lastHealthCheck = 0;
   private consecutiveFailures = 0;
+
+  private appendLauncherLog(message: string): void {
+    try {
+      const logDir = path.join(this.config.userDataPath, "logs");
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      const logPath = path.join(logDir, "backend-launcher.log");
+      const timestamp = new Date().toISOString();
+      fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`, { encoding: "utf-8" });
+    } catch {
+      // ignore
+    }
+  }
 
   private terminateProcess(proc: ChildProcess): void {
     if (process.platform === "win32") {
@@ -92,6 +106,23 @@ export class PythonLauncher {
     }
 
     console.log("[PythonLauncher] Starting Python backend:", exePath);
+    this.appendLauncherLog(`Starting backend: exe=${exePath}, port=${this.config.port}, packaged=${app.isPackaged}`);
+
+    // 开机自启时系统可能还不稳定，等待更长时间让系统就绪
+    // 检测是否是开机后短时间内启动（系统启动后 10 分钟内）
+    const systemUptime = require("os").uptime();
+    if (systemUptime < 600) {
+      // 开机后 2 分钟内等待 30 秒，2-5 分钟内等待 15 秒，5-10 分钟内等待 5 秒
+      let waitSeconds = 5;
+      if (systemUptime < 120) {
+        waitSeconds = 30;
+      } else if (systemUptime < 300) {
+        waitSeconds = 15;
+      }
+      console.log(`[PythonLauncher] System just booted (uptime=${systemUptime}s), waiting ${waitSeconds}s before starting backend...`);
+      this.appendLauncherLog(`System uptime=${systemUptime}s, waiting ${waitSeconds}s before starting backend`);
+      await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+    }
 
     // 设置环境变量
     const env = {
@@ -113,6 +144,9 @@ export class PythonLauncher {
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
     }
+
+    const stdoutPath = path.join(logDir, "backend-stdout.log");
+    const stderrPath = path.join(logDir, "backend-stderr.log");
 
     // 种子数据库：seed 内容变化或首次安装时，从打包的种子覆盖用户数据库
     if (app.isPackaged) {
@@ -142,9 +176,26 @@ export class PythonLauncher {
     // 启动子进程
     this.process = spawn(exePath, [], {
       env,
+      cwd: app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "../../backend"),
       stdio: ["ignore", "pipe", "pipe"],
       detached: false, // 确保子进程随父进程退出
       windowsHide: true, // Windows 下隐藏控制台窗口
+    });
+
+    this.process.stdout?.on("data", (data: Buffer) => {
+      try {
+        fs.appendFileSync(stdoutPath, data);
+      } catch {
+        // ignore
+      }
+    });
+
+    this.process.stderr?.on("data", (data: Buffer) => {
+      try {
+        fs.appendFileSync(stderrPath, data);
+      } catch {
+        // ignore
+      }
     });
 
     this.setupProcessHandlers();
@@ -247,6 +298,7 @@ export class PythonLauncher {
     // 进程退出
     this.process.on("exit", (code, signal) => {
       console.log(`[PythonLauncher] Process exited: code=${code}, signal=${signal}`);
+      this.appendLauncherLog(`Backend exited: code=${code}, signal=${signal}`);
       this.process = null;
       this.isReady = false;
       this.events.onExit(code, signal);
@@ -260,6 +312,7 @@ export class PythonLauncher {
     // 进程错误
     this.process.on("error", (error) => {
       console.error("[PythonLauncher] Process error:", error);
+      this.appendLauncherLog(`Backend process error: ${error.message}`);
       this.events.onError(`Process error: ${error.message}`);
     });
   }
@@ -283,14 +336,22 @@ export class PythonLauncher {
 
     this.events.onRestart(this.restartCount);
 
-    // 冷却后重启
+    // 冷却后重启，开机时使用更长的冷却时间
+    const systemUptime = require("os").uptime();
+    const cooldown = systemUptime < 600 
+      ? Math.max(this.config.restartCooldown, 20000) // 开机时至少等 20 秒
+      : this.config.restartCooldown;
+    
+    this.appendLauncherLog(`Scheduling restart in ${cooldown}ms (uptime=${systemUptime}s)`);
+    
     setTimeout(() => {
       if (!this.isShuttingDown) {
         this.start().catch((error) => {
           console.error("[PythonLauncher] Restart failed:", error);
+          this.appendLauncherLog(`Restart failed: ${error.message}`);
         });
       }
-    }, this.config.restartCooldown);
+    }, cooldown);
   }
 
   /**

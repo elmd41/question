@@ -1,7 +1,7 @@
 export type ModelFamily = "O" | "O2.0" | "SC" | "SC2.0";
 export type PlaybackTone = "panda_warm";
 export type AutoEndMode = "screen_idle" | "disconnect_only";
-export type UpstreamMode = "mock" | "volcengine" | "qwen";
+export type UpstreamMode = "mock" | "volcengine" | "qwen" | "aliyun_split";
 
 export interface LocationConfig {
   city: string;
@@ -80,6 +80,11 @@ export interface UpstreamConfigResponse {
   qwen_voice: string;
   qwen_api_key_configured: boolean;
   qwen_api_key_masked?: string | null;
+  aliyun_asr_model: string;
+  aliyun_llm_model: string;
+  aliyun_tts_model: string;
+  aliyun_tts_voice: string;
+  aliyun_asr_max_sentence_silence: number;
   updated_at: string;
   updated_by?: string | null;
 }
@@ -95,6 +100,11 @@ export interface UpstreamConfigUpdateRequest {
   qwen_base_url: string;
   qwen_model: string;
   qwen_voice: string;
+  aliyun_asr_model: string;
+  aliyun_llm_model: string;
+  aliyun_tts_model: string;
+  aliyun_tts_voice: string;
+  aliyun_asr_max_sentence_silence: number;
 }
 
 export type VisitorPhase =

@@ -19,8 +19,20 @@
 !macroend
 
 !macro customInstall
+  ; 清理旧版本可能残留的 HKCU 自启项（避免重复启动）
+  DeleteRegValue HKCU "${RUN_KEY}" "${APP_NAME}"
+  
+  ; 创建延迟启动脚本（VBScript，不弹窗，不易被安全软件拦截）
+  ; 延迟 60 秒启动，给系统足够时间完成初始化
+  FileOpen $0 "$INSTDIR\delayed-start.vbs" w
+  FileWrite $0 'WScript.Sleep 60000$\r$\n'
+  FileWrite $0 'Set WshShell = CreateObject("WScript.Shell")$\r$\n'
+  FileWrite $0 'WshShell.Run """$INSTDIR\${APP_NAME}.exe""", 1, False$\r$\n'
+  FileClose $0
+  
   ; 写入开机自启注册表（HKLM 系统级，用户无法关闭）
-  WriteRegStr HKLM "${RUN_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_NAME}.exe"'
+  ; 使用 wscript 静默运行延迟启动脚本，避免 cmd 黑窗口和安全软件拦截
+  WriteRegStr HKLM "${RUN_KEY}" "${APP_NAME}" 'wscript.exe "$INSTDIR\delayed-start.vbs"'
   
   ; 写入卸载信息
   WriteRegStr HKLM "${REG_KEY}" "DisplayName" "${APP_NAME}"
@@ -33,6 +45,9 @@
 !macro customUnInstall
   ; 删除开机自启注册表
   DeleteRegValue HKLM "${RUN_KEY}" "${APP_NAME}"
+  
+  ; 删除延迟启动脚本
+  Delete "$INSTDIR\delayed-start.vbs"
   
   ; 删除卸载信息
   DeleteRegKey HKLM "${REG_KEY}"

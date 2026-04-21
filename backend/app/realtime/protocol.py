@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import json
+from dataclasses import dataclass
 from typing import Any
 
 PROTOCOL_VERSION = 0b0001
@@ -113,3 +114,10 @@ def parse_response(response: str | bytes) -> dict[str, Any]:
     else:
         result["payload_msg"] = {}
     return result
+
+
+@dataclass(slots=True)
+class UpstreamEvent:
+    event: int | None
+    message_type: str
+    payload: Any

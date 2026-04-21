@@ -223,6 +223,12 @@ export function VisitorPage() {
                 {phase === "listening" || phase === "user_speaking" ? (
                   <div className="listening-banner">正在听你说话</div>
                 ) : null}
+                {phase === "speaking" ? (
+                  <div className="speaking-wait-banner">
+                    <span className="speaking-wait-banner__icon">🐼</span>
+                    <span className="speaking-wait-banner__text">请等待小熊猫说完话</span>
+                  </div>
+                ) : null}
               </>
             )}
           </div>

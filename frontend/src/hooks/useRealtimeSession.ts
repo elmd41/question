@@ -229,6 +229,7 @@ export function useRealtimeSession(config: MuseumConfig | null) {
         resetLocalSpeechGate();
         setAssistantLevel(0);
         pushTrace("tts:drained");
+        sendJson({ type: "playback_ended" });
         if (phaseRef.current !== "user_speaking") {
           setPhase("listening");
         }
@@ -400,13 +401,14 @@ export function useRealtimeSession(config: MuseumConfig | null) {
                 (playerStartedRef.current || lastQueuedMsRef.current > 0 || ttsEndedRef.current);
 
               if (nextState === "speaking") {
+                audioRef.current?.hardInterrupt();
+                audioRef.current?.resetPlayerGain();
                 ttsEndedRef.current = false;
                 lastQueuedMsRef.current = 0;
                 suppressIncomingAudioRef.current = false;
                 playerStartedRef.current = false;
                 playerStartedAtRef.current = null;
                 interruptUnlockAtRef.current = 0;
-                audioRef.current?.resetPlayerGain();
               }
               if (nextState === "greeting") {
                 ttsEndedRef.current = false;
@@ -472,6 +474,7 @@ export function useRealtimeSession(config: MuseumConfig | null) {
               interruptUnlockAtRef.current = 0;
               resetLocalSpeechGate();
               setAssistantLevel(0);
+              sendJson({ type: "playback_ended" });
               if (phaseRef.current !== "user_speaking") {
                 setPhase("listening");
               }
@@ -578,7 +581,7 @@ export function useRealtimeSession(config: MuseumConfig | null) {
     listening: "正在听你说话",
     user_speaking: "正在听你说话",
     thinking: "我在思考",
-    speaking: "正在为你讲解",
+    speaking: "请等待小熊猫说完话",
     interrupted: "检测到你开口，正在打断播报",
     closing_session: "正在结束会话",
     error: "发生错误，请重新开始",

@@ -13,7 +13,8 @@ import websockets
 from ..logging_utils import get_logger
 from ..schemas import MuseumConfig
 from ..settings import Settings
-from .protocol import build_audio_frame, build_json_frame, parse_response
+from .aliyun_split import AliyunSplitClient
+from .protocol import UpstreamEvent, build_audio_frame, build_json_frame, parse_response
 
 logger = get_logger("upstream")
 
@@ -23,13 +24,6 @@ def chunk_text(text: str, chunk_size: int = 6) -> list[str]:
     if not cleaned:
         return []
     return [cleaned[index : index + chunk_size] for index in range(0, len(cleaned), chunk_size)]
-
-
-@dataclass(slots=True)
-class UpstreamEvent:
-    event: int | None
-    message_type: str
-    payload: Any
 
 
 class MockRealtimeClient:
@@ -442,11 +436,13 @@ def _parse_json(raw: str | bytes) -> dict:
         return {}
 
 
-def create_upstream_client(settings: Settings) -> MockRealtimeClient | VolcengineRealtimeClient | QwenRealtimeClient:
+def create_upstream_client(settings: Settings) -> MockRealtimeClient | VolcengineRealtimeClient | QwenRealtimeClient | AliyunSplitClient:
     if settings.upstream_mode == "mock":
         return MockRealtimeClient()
     if settings.upstream_mode == "qwen":
         return QwenRealtimeClient(settings)
+    if settings.upstream_mode == "aliyun_split":
+        return AliyunSplitClient(settings)
     return VolcengineRealtimeClient(settings)
 
 

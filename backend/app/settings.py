@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .schemas import (
+    DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE,
+    DEFAULT_ALIYUN_ASR_MODEL,
+    DEFAULT_ALIYUN_LLM_MODEL,
+    DEFAULT_ALIYUN_TTS_MODEL,
+    DEFAULT_ALIYUN_TTS_VOICE,
     DEFAULT_REALTIME_APP_KEY,
     DEFAULT_REALTIME_BASE_URL,
     DEFAULT_REALTIME_RESOURCE_ID,
@@ -63,6 +68,11 @@ class Settings:
     qwen_base_url: str
     qwen_model: str
     qwen_voice: str
+    aliyun_asr_model: str
+    aliyun_llm_model: str
+    aliyun_tts_model: str
+    aliyun_tts_voice: str
+    aliyun_asr_max_sentence_silence: int
     default_config: MuseumConfig
 
     def build_upstream_config(self) -> RealtimeUpstreamConfig:
@@ -77,6 +87,11 @@ class Settings:
             qwen_base_url=self.qwen_base_url,
             qwen_model=self.qwen_model,
             qwen_voice=self.qwen_voice,
+            aliyun_asr_model=self.aliyun_asr_model,
+            aliyun_llm_model=self.aliyun_llm_model,
+            aliyun_tts_model=self.aliyun_tts_model,
+            aliyun_tts_voice=self.aliyun_tts_voice,
+            aliyun_asr_max_sentence_silence=self.aliyun_asr_max_sentence_silence,
         )
 
     def apply_upstream_config(self, config: RealtimeUpstreamConfig) -> None:
@@ -90,6 +105,11 @@ class Settings:
         self.qwen_base_url = config.qwen_base_url
         self.qwen_model = config.qwen_model
         self.qwen_voice = config.qwen_voice
+        self.aliyun_asr_model = config.aliyun_asr_model
+        self.aliyun_llm_model = config.aliyun_llm_model
+        self.aliyun_tts_model = config.aliyun_tts_model
+        self.aliyun_tts_voice = config.aliyun_tts_voice
+        self.aliyun_asr_max_sentence_silence = config.aliyun_asr_max_sentence_silence
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -106,7 +126,7 @@ class Settings:
         upstream_mode = os.getenv("UPSTREAM_MODE", "")
         default_avatar_url = os.getenv("DEFAULT_AVATAR_URL", "/models/panda-v2.glb") or None
         if not upstream_mode:
-            upstream_mode = "volcengine" if upstream_app_id and upstream_access_key else "mock"
+            upstream_mode = "aliyun_split"
 
         default_config = MuseumConfig(
             display_title=os.getenv("DEFAULT_DISPLAY_TITLE", "科技馆数字人"),
@@ -125,7 +145,26 @@ class Settings:
             bot_name=os.getenv("DEFAULT_BOT_NAME", "小熊猫"),
             system_role=os.getenv(
                 "DEFAULT_SYSTEM_ROLE",
-                "你是一只可爱的小熊猫，擅长猜年龄。规则：绝对不能直接问年龄、几岁、生日、上几年级。通过轻松自然的闲聊间接推理对方的年龄，每次只问一个开放式问题，根据回答自然接话再聊下一个话题。当你有足够信心确定对方年龄时再公布猜测，说出你的推理过程让对方觉得好神奇。猜对了开心庆祝，猜错了俏皮说差一点点。\n首轮开场方向（每次随机选一个，不要重复）：影视、音乐、美食、旅行、动物、运动、游戏、阅读、社交、日常作息、消费习惯、兴趣爱好、学习工作、时尚穿搭、科技数码。",
+                (
+                    "你是小熊猫，一只会猜年龄的可爱熊猫。\n"
+                    "你的任务是通过提问来推理对方的年龄。\n"
+                    "\n"
+                    "【你的做法】\n"
+                    "每轮直接问一个能区分年龄段的问题，不寒暄不铺垫不废话。\n"
+                    "不要顺着对方的回答追问细节，每轮换一个新话题。\n"
+                    "\n"
+                    "【好问题示例】\n"
+                    "小时候看什么动画片？第一部手机是什么？最喜欢的歌手是谁？玩过什么游戏？\n"
+                    "\n"
+                    "【坏问题示例—绝对不能问】\n"
+                    "爸爸几点下班？坐谁的车？定闹钟没？这种跟年龄无关的不要问。\n"
+                    "\n"
+                    "【禁止】\n"
+                    "不能问年龄、几岁、生日、出生年份、几年级、上学还是上班。\n"
+                    "\n"
+                    "【格式】\n"
+                    "每次只回复一句话，20字以内，直接问问题或给出猜测。\n"
+                ),
             ),
             speaking_style=os.getenv(
                 "DEFAULT_SPEAKING_STYLE",
@@ -165,5 +204,10 @@ class Settings:
             qwen_base_url=os.getenv("QWEN_BASE_URL", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"),
             qwen_model=os.getenv("QWEN_MODEL", "qwen3.5-omni-flash-realtime"),
             qwen_voice=os.getenv("QWEN_VOICE", "Momo"),
+            aliyun_asr_model=os.getenv("ALIYUN_ASR_MODEL", DEFAULT_ALIYUN_ASR_MODEL),
+            aliyun_llm_model=os.getenv("ALIYUN_LLM_MODEL", DEFAULT_ALIYUN_LLM_MODEL),
+            aliyun_tts_model=os.getenv("ALIYUN_TTS_MODEL", DEFAULT_ALIYUN_TTS_MODEL),
+            aliyun_tts_voice=os.getenv("ALIYUN_TTS_VOICE", DEFAULT_ALIYUN_TTS_VOICE),
+            aliyun_asr_max_sentence_silence=int(os.getenv("ALIYUN_ASR_MAX_SENTENCE_SILENCE", str(DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE))),
             default_config=default_config,
         )

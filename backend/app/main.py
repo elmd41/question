@@ -110,6 +110,11 @@ def build_upstream_response(snapshot: UpstreamConfigSnapshot) -> UpstreamConfigR
         qwen_voice=snapshot.config.qwen_voice,
         qwen_api_key_configured=bool(snapshot.config.qwen_api_key),
         qwen_api_key_masked=mask_secret(snapshot.config.qwen_api_key) or None,
+        aliyun_asr_model=snapshot.config.aliyun_asr_model,
+        aliyun_llm_model=snapshot.config.aliyun_llm_model,
+        aliyun_tts_model=snapshot.config.aliyun_tts_model,
+        aliyun_tts_voice=snapshot.config.aliyun_tts_voice,
+        aliyun_asr_max_sentence_silence=snapshot.config.aliyun_asr_max_sentence_silence,
         updated_at=snapshot.updated_at,
         updated_by=snapshot.updated_by,
     )
@@ -287,6 +292,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "qwen_base_url": payload.qwen_base_url,
                     "qwen_model": payload.qwen_model,
                     "qwen_voice": payload.qwen_voice,
+                    "aliyun_asr_model": payload.aliyun_asr_model,
+                    "aliyun_llm_model": payload.aliyun_llm_model,
+                    "aliyun_tts_model": payload.aliyun_tts_model,
+                    "aliyun_tts_voice": payload.aliyun_tts_voice,
+                    "aliyun_asr_max_sentence_silence": payload.aliyun_asr_max_sentence_silence,
                 }
             )
         except ValidationError as exc:
@@ -329,7 +339,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if message.get("text"):
                     payload = json.loads(message["text"])
                     msg_type = payload.get("type")
-                    logger.info(
+                    _ws_log = logger.debug if msg_type in ("heartbeat", "voice_activity") else logger.info
+                    _ws_log(
                         "ws_message type=%s client_id=%s session_id=%s",
                         msg_type,
                         context.client_id,
@@ -380,6 +391,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 speaking=bool(payload.get("speaking", False)),
                                 level=payload.get("level"),
                             )
+                    elif msg_type == "playback_ended" and context.session is not None:
+                        from .realtime.aliyun_split import AliyunSplitClient
+                        if isinstance(context.session.upstream, AliyunSplitClient):
+                            context.session.upstream.notify_playback_ended()
                     elif msg_type == "interrupt" and context.session is not None:
                         logger.info("ws_interrupt session_id=%s", context.session.session_id)
                         get_store().log_session_event(

@@ -12,6 +12,7 @@ from fastapi import WebSocket
 
 from .logging_utils import get_logger
 from .realtime.upstream import MockRealtimeClient, QwenRealtimeClient, VolcengineRealtimeClient, create_upstream_client
+from .realtime.aliyun_split import AliyunSplitClient
 from .schemas import MuseumConfig
 from .settings import Settings
 from .store import ConfigStore
@@ -119,7 +120,7 @@ class RealtimeSessionManager:
             try:
                 await asyncio.wait_for(handle.upstream.connect(), timeout=timeout)
                 await asyncio.wait_for(handle.upstream.start_session(handle.config, handle.session_id), timeout=timeout)
-                if isinstance(handle.upstream, MockRealtimeClient):
+                if isinstance(handle.upstream, (MockRealtimeClient, AliyunSplitClient)):
                     await asyncio.wait_for(handle.upstream.say_hello(handle.config.welcome_text), timeout=timeout)
                 else:
                     await asyncio.wait_for(handle.upstream.say_hello(handle.config.welcome_text, handle.session_id), timeout=timeout)
@@ -179,7 +180,7 @@ class RealtimeSessionManager:
                 len(audio_chunk),
                 handle.state,
             )
-        if isinstance(handle.upstream, MockRealtimeClient):
+        if isinstance(handle.upstream, (MockRealtimeClient, AliyunSplitClient)):
             await handle.upstream.send_audio(audio_chunk)
         else:
             await handle.upstream.send_audio(handle.session_id, audio_chunk)
@@ -278,7 +279,9 @@ class RealtimeSessionManager:
 
         payload = event.payload if hasattr(event, "payload") else {}
         event_code = event.event if hasattr(event, "event") else None
-        logger.info(
+        # event 352 = TTS audio chunk, very noisy → DEBUG
+        log_fn = logger.debug if event_code == 352 else logger.info
+        log_fn(
             "session_upstream_event session_id=%s event=%s message_type=%s state=%s payload=%s",
             handle.session_id,
             event_code,
@@ -347,7 +350,7 @@ class RealtimeSessionManager:
                 "assistant_text",
                 {"content": handle.assistant_text_buffer, "reply_id": handle.assistant_reply_id},
             )
-            logger.info("Sending assistant_text to frontend: buffer=%s", handle.assistant_text_buffer)
+            logger.debug("Sending assistant_text to frontend: buffer=%s", handle.assistant_text_buffer)
             await self._send_json(
                 handle,
                 {
@@ -409,7 +412,7 @@ class RealtimeSessionManager:
             handle.detach_task.cancel()
             handle.detach_task = None
 
-        if isinstance(handle.upstream, MockRealtimeClient):
+        if isinstance(handle.upstream, (MockRealtimeClient, AliyunSplitClient)):
             await handle.upstream.finish_session()
             await handle.upstream.finish_connection()
             await handle.upstream.close()

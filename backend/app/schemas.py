@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_va
 ModelFamily = Literal["O", "O2.0", "SC", "SC2.0"]
 PlaybackTone = Literal["natural", "panda_warm"]
 AutoEndMode = Literal["screen_idle", "disconnect_only"]
-UpstreamMode = Literal["mock", "volcengine", "qwen"]
+UpstreamMode = Literal["mock", "volcengine", "qwen", "aliyun_split"]
 
 DEFAULT_REALTIME_BASE_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
 DEFAULT_REALTIME_RESOURCE_ID = "volc.speech.dialog"
@@ -17,6 +17,12 @@ DEFAULT_REALTIME_APP_KEY = "PlgvMymc7f3tQnJ6"
 DEFAULT_QWEN_BASE_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 DEFAULT_QWEN_MODEL = "qwen3.5-omni-flash-realtime"
 DEFAULT_QWEN_VOICE = "Momo"
+
+DEFAULT_ALIYUN_ASR_MODEL = "fun-asr-realtime"
+DEFAULT_ALIYUN_LLM_MODEL = "qwen3.5-plus"
+DEFAULT_ALIYUN_TTS_MODEL = "cosyvoice-v3-flash"
+DEFAULT_ALIYUN_TTS_VOICE = "longjielidou_v3"
+DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE = 800
 
 DEFAULT_SPEAKER_BY_FAMILY: dict[ModelFamily, str] = {
     "O": "zh_male_xiaotian_jupiter_bigtts",
@@ -59,7 +65,26 @@ class MuseumConfig(BaseModel):
     speaker: str = "zh_male_xiaotian_jupiter_bigtts"
     playback_tone: PlaybackTone = "panda_warm"
     bot_name: str = "小熊猫"
-    system_role: str = "你是一只可爱的小熊猫，擅长猜年龄。规则：绝对不能直接问年龄、几岁、生日、上几年级。通过轻松自然的闲聊间接推理对方的年龄，每次只问一个开放式问题，根据回答自然接话再聊下一个话题。当你有足够信心确定对方年龄时再公布猜测，说出你的推理过程让对方觉得好神奇。猜对了开心庆祝，猜错了俏皮说差一点点。\n首轮开场方向（每次随机选一个，不要重复）：影视、音乐、美食、旅行、动物、运动、游戏、阅读、社交、日常作息、消费习惯、兴趣爱好、学习工作、时尚穿搭、科技数码。"
+    system_role: str = (
+        "你是小熊猫，一只会猜年龄的可爱熊猫。\n"
+        "你的任务是通过提问来推理对方的年龄。\n"
+        "\n"
+        "【你的做法】\n"
+        "每轮直接问一个能区分年龄段的问题，不寒暄不铺垫不废话。\n"
+        "不要顺着对方的回答追问细节，每轮换一个新话题。\n"
+        "\n"
+        "【好问题示例】\n"
+        "小时候看什么动画片？第一部手机是什么？最喜欢的歌手是谁？玩过什么游戏？\n"
+        "\n"
+        "【坏问题示例—绝对不能问】\n"
+        "爸爸几点下班？坐谁的车？定闹钟没？这种跟年龄无关的不要问。\n"
+        "\n"
+        "【禁止】\n"
+        "不能问年龄、几岁、生日、出生年份、几年级、上学还是上班。\n"
+        "\n"
+        "【格式】\n"
+        "每次只回复一句话，20字以内，直接问问题或给出猜测。\n"
+    )
     speaking_style: str = "语气活泼自然，句子简短，根据对方的回答风格自动调整语气，优先使用中文。"
     character_manifest: str | None = None
     strict_audit: bool = False
@@ -207,6 +232,11 @@ class RealtimeUpstreamConfig(BaseModel):
     qwen_base_url: str = DEFAULT_QWEN_BASE_URL
     qwen_model: str = DEFAULT_QWEN_MODEL
     qwen_voice: str = DEFAULT_QWEN_VOICE
+    aliyun_asr_model: str = DEFAULT_ALIYUN_ASR_MODEL
+    aliyun_llm_model: str = DEFAULT_ALIYUN_LLM_MODEL
+    aliyun_tts_model: str = DEFAULT_ALIYUN_TTS_MODEL
+    aliyun_tts_voice: str = DEFAULT_ALIYUN_TTS_VOICE
+    aliyun_asr_max_sentence_silence: int = DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE
 
     @field_validator("base_url")
     @classmethod
@@ -267,6 +297,11 @@ class UpstreamConfigResponse(BaseModel):
     qwen_voice: str = DEFAULT_QWEN_VOICE
     qwen_api_key_configured: bool = False
     qwen_api_key_masked: str | None = None
+    aliyun_asr_model: str = DEFAULT_ALIYUN_ASR_MODEL
+    aliyun_llm_model: str = DEFAULT_ALIYUN_LLM_MODEL
+    aliyun_tts_model: str = DEFAULT_ALIYUN_TTS_MODEL
+    aliyun_tts_voice: str = DEFAULT_ALIYUN_TTS_VOICE
+    aliyun_asr_max_sentence_silence: int = DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE
     updated_at: datetime
     updated_by: str | None = None
 
@@ -282,6 +317,11 @@ class UpstreamConfigUpdateRequest(BaseModel):
     qwen_base_url: str = DEFAULT_QWEN_BASE_URL
     qwen_model: str = DEFAULT_QWEN_MODEL
     qwen_voice: str = DEFAULT_QWEN_VOICE
+    aliyun_asr_model: str = DEFAULT_ALIYUN_ASR_MODEL
+    aliyun_llm_model: str = DEFAULT_ALIYUN_LLM_MODEL
+    aliyun_tts_model: str = DEFAULT_ALIYUN_TTS_MODEL
+    aliyun_tts_voice: str = DEFAULT_ALIYUN_TTS_VOICE
+    aliyun_asr_max_sentence_silence: int = DEFAULT_ALIYUN_ASR_MAX_SENTENCE_SILENCE
 
     @field_validator("base_url")
     @classmethod
