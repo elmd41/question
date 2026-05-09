@@ -37,10 +37,10 @@ const initialState: SessionViewState = {
   error: null,
 };
 
-const LISTENING_ACTIVATION_FRAMES = 2;
-const INTERRUPT_ACTIVATION_FRAMES = 5;
-const MIN_VAD_LEVEL = 0.026;
-const MIN_INTERRUPT_LEVEL = 0.034;
+const LISTENING_ACTIVATION_FRAMES = 3;
+const INTERRUPT_ACTIVATION_FRAMES = 6;
+const MIN_VAD_LEVEL = 0.030;
+const MIN_INTERRUPT_LEVEL = 0.038;
 const INTERRUPT_ARM_DELAY_MS = 650;
 const VOICE_ACTIVITY_HEARTBEAT_MS = 240;
 
@@ -133,6 +133,7 @@ export function useRealtimeSession(config: MuseumConfig | null) {
   const stableSpeechFramesRef = useRef(0);
   const lastVoiceActivitySentAtRef = useRef(0);
   const lastVoiceActivitySpeakingRef = useRef(false);
+  const assistantTextRef = useRef("");
 
   const setPhase = useEffectEvent((phase: VisitorPhase) => {
     dispatch({ type: "phase", phase });
@@ -148,6 +149,23 @@ export function useRealtimeSession(config: MuseumConfig | null) {
   const clearResumeToken = useEffectEvent(() => {
     resumeTokenRef.current = null;
     window.localStorage.removeItem("museum-resume-token");
+  });
+
+  const checkGameEnded = useEffectEvent((): boolean => {
+    const currentText = assistantTextRef.current;
+    const ageGuessPattern = /(我猜你|你.*?是|你大概|你应该)\s*\d+\s*岁/;
+    const goodbyePattern = /拜拜|再见|下次再|游戏结束|不玩了|退出/;
+    if (ageGuessPattern.test(currentText) || goodbyePattern.test(currentText)) {
+      pushTrace("game:ended", { text: currentText });
+      audioFileLog("info", `检测到游戏结束，自动结束会话: ${currentText}`);
+      window.setTimeout(() => {
+        sendJson({ type: "end_session", reason: "game_completed" });
+        clearResumeToken();
+        void releaseResources("idle");
+      }, 3000);
+      return true;
+    }
+    return false;
   });
 
   const resetLocalSpeechGate = useEffectEvent(() => {
@@ -230,8 +248,10 @@ export function useRealtimeSession(config: MuseumConfig | null) {
         setAssistantLevel(0);
         pushTrace("tts:drained");
         sendJson({ type: "playback_ended" });
-        if (phaseRef.current !== "user_speaking") {
-          setPhase("listening");
+        if (!checkGameEnded()) {
+          if (phaseRef.current !== "user_speaking") {
+            setPhase("listening");
+          }
         }
       }
       return;
@@ -295,6 +315,11 @@ export function useRealtimeSession(config: MuseumConfig | null) {
         onAudioChunk: (chunk) => {
           const socket = wsRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          // 只在 listening 或 user_speaking 阶段发送音频，减少噪声干扰
+          const p = phaseRef.current;
+          if (p !== "listening" && p !== "user_speaking" && p !== "interrupted") {
             return;
           }
           socket.send(chunk);
@@ -434,6 +459,7 @@ export function useRealtimeSession(config: MuseumConfig | null) {
           if (type === "assistant_text" && typeof payload.text === "string") {
             const text = payload.text;
             const replyId = typeof payload.replyId === "string" ? payload.replyId : null;
+            assistantTextRef.current = text;
             startTransition(() => {
               dispatch({ type: "assistant", text, replyId });
             });
@@ -475,7 +501,8 @@ export function useRealtimeSession(config: MuseumConfig | null) {
               resetLocalSpeechGate();
               setAssistantLevel(0);
               sendJson({ type: "playback_ended" });
-              if (phaseRef.current !== "user_speaking") {
+              
+              if (!checkGameEnded() && phaseRef.current !== "user_speaking") {
                 setPhase("listening");
               }
             }

@@ -82,32 +82,47 @@ class AsyncASRWrapper:
         self._recognition: Recognition | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    async def start(self) -> None:
+    async def start(self, max_retries: int = 5, retry_delay: float = 3.0) -> None:
         self._loop = asyncio.get_running_loop()
         dashscope.api_key = self._api_key
 
-        callback = _BridgeCallback(self._queue, self._loop)
-        # fun-asr 不支持 disfluency_removal / semantic_punctuation，只有 paraformer 才用
-        is_paraformer = "paraformer" in self._model
-        recognition_kwargs: dict = dict(
-            model=self._model,
-            format="pcm",
-            sample_rate=self._sample_rate,
-            max_sentence_silence=self._max_sentence_silence,
-            callback=callback,
-        )
-        if is_paraformer:
-            recognition_kwargs["semantic_punctuation_enabled"] = False
-            recognition_kwargs["disfluency_removal_enabled"] = True
-        self._recognition = Recognition(**recognition_kwargs)
-        logger.info(
-            "asr_starting model=%s sample_rate=%s max_sentence_silence=%s",
-            self._model,
-            self._sample_rate,
-            self._max_sentence_silence,
-        )
-        self._recognition.start()
-        logger.info("asr_started")
+        for attempt in range(1, max_retries + 1):
+            try:
+                callback = _BridgeCallback(self._queue, self._loop)
+                # fun-asr 不支持 disfluency_removal / semantic_punctuation，只有 paraformer 才用
+                is_paraformer = "paraformer" in self._model
+                recognition_kwargs: dict = dict(
+                    model=self._model,
+                    format="pcm",
+                    sample_rate=self._sample_rate,
+                    max_sentence_silence=self._max_sentence_silence,
+                    callback=callback,
+                )
+                if is_paraformer:
+                    recognition_kwargs["semantic_punctuation_enabled"] = False
+                    recognition_kwargs["disfluency_removal_enabled"] = True
+                self._recognition = Recognition(**recognition_kwargs)
+                logger.info(
+                    "asr_starting model=%s sample_rate=%s max_sentence_silence=%s attempt=%d",
+                    self._model,
+                    self._sample_rate,
+                    self._max_sentence_silence,
+                    attempt,
+                )
+                self._recognition.start()
+                logger.info("asr_started attempt=%d", attempt)
+                return
+            except Exception as e:
+                logger.warning(
+                    "asr_start_failed attempt=%d/%d error=%s",
+                    attempt, max_retries, e,
+                )
+                self._recognition = None
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error("asr_start_exhausted_retries max_retries=%d", max_retries)
+                    raise
 
     async def send_audio(self, chunk: bytes) -> None:
         if self._recognition is None:

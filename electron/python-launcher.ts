@@ -268,9 +268,19 @@ export class PythonLauncher {
       return path.join(backendDir, ".venv/Scripts/python.exe");
     }
 
-    // 生产模式：使用打包的 exe
+    // 生产模式：优先使用目录模式，否则使用单文件模式
     const resourcesPath = process.resourcesPath;
-    return path.join(resourcesPath, "backend.exe");
+    const dirModeExe = path.join(resourcesPath, "backend", "backend.exe");
+    const singleFileExe = path.join(resourcesPath, "backend.exe");
+    
+    // 检查目录模式是否存在
+    if (fs.existsSync(dirModeExe)) {
+      console.log("[PythonLauncher] Using directory mode backend");
+      return dirModeExe;
+    }
+    
+    console.log("[PythonLauncher] Using single-file mode backend");
+    return singleFileExe;
   }
 
   /**

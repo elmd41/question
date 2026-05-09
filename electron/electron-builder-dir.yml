@@ -1,0 +1,40 @@
+appId: com.science-museum.digital-human
+productName: 科技馆数字人讲解系统
+copyright: Copyright © 2024 Science Museum
+
+directories:
+  buildResources: build
+
+files:
+  - dist/**/*
+  - "!dist/win-unpacked/**"
+  - "!dist/*.exe"
+  - "!dist/*.blockmap"
+  - "!dist/builder-*.yml"
+  - "!dist/builder-*.yaml"
+  - package.json
+
+extraResources:
+  # 目录模式：包含整个 backend 目录
+  - from: ../backend/dist/backend
+    to: backend
+  - from: ../frontend/dist
+    to: frontend/dist
+  - from: ../data/museum.db
+    to: seed/museum.db
+
+win:
+  target: [{ target: nsis, arch: [x64] }]
+  artifactName: ${productName}-${version}-${arch}-目录模式-setup.exe
+  sign: null
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  displayLanguageSelector: false
+  language: "2052"

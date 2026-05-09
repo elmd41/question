@@ -10,6 +10,7 @@ import {
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import * as dns from "dns";
 import { execFile } from "child_process";
 import { PythonLauncher } from "./python-launcher";
 
@@ -643,6 +644,32 @@ async function killStaleProcesses(): Promise<void> {
 }
 
 /**
+ * 等待网络就绪（DNS 能解析 DashScope 域名即视为就绪）
+ * 网络已就绪时立即返回（0 延迟），未就绪时每 3 秒重试，最多等 maxWaitMs
+ */
+async function waitForNetwork(maxWaitMs = 90000): Promise<boolean> {
+  const startTime = Date.now();
+  const testHost = "dashscope.aliyuncs.com";
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        dns.lookup(testHost, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      writeLog("info", `网络就绪，DNS 解析 ${testHost} 成功 (${Date.now() - startTime}ms)`);
+      return true;
+    } catch {
+      writeLog("info", `等待网络就绪... (${Math.round((Date.now() - startTime) / 1000)}s)`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  writeLog("warn", `网络等待超时 (${maxWaitMs}ms)，继续启动`);
+  return false;
+}
+
+/**
  * 应用启动
  */
 async function bootstrap(): Promise<void> {
@@ -665,6 +692,12 @@ async function bootstrap(): Promise<void> {
 
   // 设置 IPC
   setupIpcHandlers();
+
+  // 等待网络就绪（网络已通时 0 延迟，未通时最多等 90 秒）
+  const networkOk = await waitForNetwork();
+  if (!networkOk && mainWindow) {
+    await showStatusPage(mainWindow, "系统启动中", "网络连接中，请稍候...", "正在等待网络就绪，程序将自动继续。");
+  }
 
   // 启动 Python 后端
   try {

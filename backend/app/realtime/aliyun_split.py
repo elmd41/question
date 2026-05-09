@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 import uuid
 from typing import Any
 
@@ -35,7 +36,9 @@ class AliyunSplitClient:
         self._config: MuseumConfig | None = None
         self.conversation_history: list[dict[str, str]] = []
         self._speaking = False
+        self._speaking_since: float = 0
         self._closed = False
+        self._last_assistant_text: str = ""
 
     # ── UpstreamClient interface ──────────────────────────────────
 
@@ -105,6 +108,7 @@ class AliyunSplitClient:
                 await self._llm_tts_task
             self._llm_tts_task = None
         self.conversation_history.clear()
+        self._last_assistant_text = ""
 
     async def finish_connection(self) -> None:
         pass
@@ -140,9 +144,23 @@ class AliyunSplitClient:
 
                 if event.kind == "sentence_end" and event.text.strip():
                     if self._speaking:
-                        logger.info("asr_sentence_end_dropped speaking=True text=%s", event.text.strip())
-                        continue
+                        elapsed = time.monotonic() - self._speaking_since
+                        if elapsed > 30:
+                            logger.warning(
+                                "speaking_lock_auto_release elapsed=%.1fs", elapsed
+                            )
+                            self._speaking = False
+                        else:
+                            logger.info(
+                                "asr_sentence_end_dropped speaking=True elapsed=%.1fs text=%s",
+                                elapsed, event.text.strip(),
+                            )
+                            continue
                     user_text = event.text.strip()
+                    # 过滤纯噪声（1个字以下）
+                    if len(user_text) <= 1:
+                        logger.info("asr_sentence_end_dropped too_short text=%s", user_text)
+                        continue
                     logger.info("asr_sentence_end text=%s", user_text)
 
                     # Emit user transcript
@@ -196,61 +214,61 @@ class AliyunSplitClient:
         if self._config is None:
             return
 
-        api_key = self.settings.qwen_api_key
-        llm_model = getattr(self.settings, "aliyun_llm_model", "qwen3.5-flash")
-        tts_model = getattr(self.settings, "aliyun_tts_model", "cosyvoice-v3-flash")
-        tts_voice = getattr(self.settings, "aliyun_tts_voice", "longjielidou_v3")
-
-        # Build messages with conversation history + round tracking
-        round_num = len(self.conversation_history) // 2 + 1
-        if round_num >= 5:
-            round_hint = (
-                f"\n\n【第{round_num}轮 - 必须猜测】"
-                "现在必须给出你的年龄猜测！格式：我猜你XX岁！因为……"
-                "不要再问问题了，直接猜。"
-            )
-        elif round_num >= 3:
-            round_hint = (
-                f"\n\n【第{round_num}轮 - 准备猜测】"
-                "你最多还能问1-2个问题就必须猜了，问最关键的。"
-            )
-        else:
-            round_hint = f"\n\n【第{round_num}轮】"
-
-        system_content = (
-            f"{self._config.system_role}\n{self._config.speaking_style}"
-            "\n\n【必须遵守】"
-            "1. 只问能区分年龄段的问题：小时候看什么动画片、玩什么游戏、第一部手机是什么、听谁的歌。"
-            "2. 不要顺着对方的回答追问细节（比如对方提到爸爸就问爸爸的事），要换新话题。"
-            "3. 不要说废话，直接问。严格20字以内。"
-            "4. 禁止问年龄、几岁、生日、出生年份、年级、上学还是上班。"
-            f"{round_hint}"
-        )
-        messages = [
-            {"role": "system", "content": system_content},
-            *self.conversation_history,
-            {"role": "user", "content": user_text},
-        ]
-
-        reply_id = str(uuid.uuid4())
-        full_reply = ""
-
-        # Mark speaking started
         self._speaking = True
-
-        # Start TTS session (speech_rate=1.2 for faster delivery)
-        self._tts = AsyncTTSWrapper(
-            api_key=api_key,
-            model=tts_model,
-            voice=tts_voice,
-            speech_rate=1.2,
-        )
-        await self._tts.start()
-
-        # TTS audio reader task
-        tts_reader_task = asyncio.create_task(self._tts_audio_reader())
+        self._speaking_since = time.monotonic()
+        tts_reader_task: asyncio.Task | None = None
+        full_reply = ""
+        reply_id = str(uuid.uuid4())
 
         try:
+            api_key = self.settings.qwen_api_key
+            llm_model = getattr(self.settings, "aliyun_llm_model", "qwen3.5-flash")
+            tts_model = getattr(self.settings, "aliyun_tts_model", "cosyvoice-v3-flash")
+            tts_voice = getattr(self.settings, "aliyun_tts_voice", "longjielidou_v3")
+
+            # Build messages with conversation history + round tracking
+            round_num = len(self.conversation_history) // 2 + 1
+            if round_num >= 5:
+                round_hint = (
+                    f"\n\n【第{round_num}轮 - 必须猜测】"
+                    "现在必须给出你的年龄猜测！格式：我猜你XX岁！因为……"
+                    "不要再问问题了，直接猜。"
+                )
+            elif round_num >= 3:
+                round_hint = (
+                    f"\n\n【第{round_num}轮 - 准备猜测】"
+                    "你最多还能问1-2个问题就必须猜了，问最关键的。"
+                )
+            else:
+                round_hint = f"\n\n【第{round_num}轮】"
+
+            system_content = (
+                f"{self._config.system_role}\n{self._config.speaking_style}"
+                "\n\n【必须遵守】"
+                "1. 只问能区分年龄段的问题：小时候看什么动画片、玩什么游戏、第一部手机是什么、听谁的歌。"
+                "2. 不要顺着对方的回答追问细节（比如对方提到爸爸就问爸爸的事），要换新话题。"
+                "3. 不要说废话，直接问。严格20字以内。"
+                "4. 禁止问年龄、几岁、生日、出生年份、年级、上学还是上班。"
+                f"{round_hint}"
+            )
+            messages = [
+                {"role": "system", "content": system_content},
+                *self.conversation_history,
+                {"role": "user", "content": user_text},
+            ]
+
+            # Start TTS session (speech_rate=1.2 for faster delivery)
+            self._tts = AsyncTTSWrapper(
+                api_key=api_key,
+                model=tts_model,
+                voice=tts_voice,
+                speech_rate=1.2,
+            )
+            await self._tts.start()
+
+            # TTS audio reader task
+            tts_reader_task = asyncio.create_task(self._tts_audio_reader())
+
             async for text_chunk in stream_chat(api_key, llm_model, messages, max_tokens=60, temperature=0.3):
                 if self._cancel.is_set():
                     break
@@ -264,7 +282,7 @@ class AliyunSplitClient:
                 )
                 await self._tts.send_text(text_chunk)
 
-            if not self._cancel.is_set():
+            if not self._cancel.is_set() and self._tts is not None:
                 await self._tts.complete()
 
         except asyncio.CancelledError:
@@ -274,7 +292,6 @@ class AliyunSplitClient:
         finally:
             # Wait for TTS reader to finish consuming audio
             if tts_reader_task is not None and not tts_reader_task.done():
-                # Give it a moment to drain remaining audio
                 try:
                     await asyncio.wait_for(tts_reader_task, timeout=5.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
@@ -296,12 +313,15 @@ class AliyunSplitClient:
             if full_reply:
                 self.conversation_history.append({"role": "user", "content": user_text})
                 self.conversation_history.append({"role": "assistant", "content": full_reply})
+                self._last_assistant_text = full_reply
 
-            # Release speaking lock as soon as TTS audio is fully queued
+            # ALWAYS release speaking lock
             self._speaking = False
+            logger.info("speaking_lock_released full_reply_len=%d", len(full_reply))
 
-            await self._tts.stop()
-            self._tts = None
+            if self._tts is not None:
+                await self._tts.stop()
+                self._tts = None
 
     async def _tts_audio_reader(self) -> None:
         """Read audio chunks from TTS and forward to queue."""
@@ -326,23 +346,25 @@ class AliyunSplitClient:
 
     async def _run_tts_only(self, text: str, reply_id: str = "greeting-hello") -> None:
         """TTS-only path for welcome message (no LLM)."""
-        api_key = self.settings.qwen_api_key
-        tts_model = getattr(self.settings, "aliyun_tts_model", "cosyvoice-v3-flash")
-        tts_voice = getattr(self.settings, "aliyun_tts_voice", "longjielidou_v3")
-
         self._speaking = True
-
-        self._tts = AsyncTTSWrapper(
-            api_key=api_key,
-            model=tts_model,
-            voice=tts_voice,
-            speech_rate=1.2,
-        )
-        await self._tts.start()
-
-        tts_reader_task = asyncio.create_task(self._tts_audio_reader())
+        self._speaking_since = time.monotonic()
+        tts_reader_task: asyncio.Task | None = None
 
         try:
+            api_key = self.settings.qwen_api_key
+            tts_model = getattr(self.settings, "aliyun_tts_model", "cosyvoice-v3-flash")
+            tts_voice = getattr(self.settings, "aliyun_tts_voice", "longjielidou_v3")
+
+            self._tts = AsyncTTSWrapper(
+                api_key=api_key,
+                model=tts_model,
+                voice=tts_voice,
+                speech_rate=1.2,
+            )
+            await self._tts.start()
+
+            tts_reader_task = asyncio.create_task(self._tts_audio_reader())
+
             # Emit text event for frontend caption
             await self.queue.put(
                 UpstreamEvent(
@@ -363,12 +385,13 @@ class AliyunSplitClient:
             await self._tts.complete()
 
             # Wait for TTS reader to drain
-            try:
-                await asyncio.wait_for(tts_reader_task, timeout=10.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                tts_reader_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await tts_reader_task
+            if tts_reader_task is not None and not tts_reader_task.done():
+                try:
+                    await asyncio.wait_for(tts_reader_task, timeout=10.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    tts_reader_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await tts_reader_task
 
             await self.queue.put(
                 UpstreamEvent(
@@ -380,7 +403,15 @@ class AliyunSplitClient:
         except Exception as exc:
             logger.error("tts_only_error error=%s", exc)
         finally:
-            # Release speaking lock as soon as TTS audio is fully queued
+            # Cleanup TTS reader if still running
+            if tts_reader_task is not None and not tts_reader_task.done():
+                tts_reader_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await tts_reader_task
+            # ALWAYS release speaking lock
             self._speaking = False
-            await self._tts.stop()
-            self._tts = None
+            self._last_assistant_text = text
+            logger.info("speaking_lock_released_tts_only")
+            if self._tts is not None:
+                await self._tts.stop()
+                self._tts = None

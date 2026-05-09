@@ -45,7 +45,8 @@ async def stream_chat(
         len(messages),
     )
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         async with client.stream("POST", DASHSCOPE_CHAT_URL, headers=headers, json=payload) as response:
             if response.status_code != 200:
                 body = await response.aread()
@@ -71,3 +72,47 @@ async def stream_chat(
                     yield content
 
     logger.info("llm_stream_end model=%s", model)
+
+
+async def quick_check(
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int = 5,
+    temperature: float = 0.0,
+    timeout_sec: float = 3.0,
+) -> str:
+    """Non-streaming quick LLM call for yes/no classification.
+
+    Returns the raw text response (trimmed). On error or timeout returns empty string.
+    """
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": False,
+        "enable_thinking": False,
+    }
+
+    try:
+        timeout = httpx.Timeout(timeout_sec, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(DASHSCOPE_CHAT_URL, headers=headers, json=payload)
+            if response.status_code != 200:
+                logger.warning("quick_check_error status=%s", response.status_code)
+                return ""
+            data = response.json()
+            choices = data.get("choices", [])
+            if not choices:
+                return ""
+            content = choices[0].get("message", {}).get("content", "")
+            return content.strip()
+    except Exception as exc:
+        logger.warning("quick_check_timeout_or_error error=%s", exc)
+        return ""
