@@ -19,14 +19,14 @@
 ### 一键启动
 
 ```powershell
-cd D:\DeLu\question
+cd question
 powershell -ExecutionPolicy Bypass -File .\start-local.ps1
 ```
 
 或直接运行：
 
 ```bat
-D:\DeLu\question\start-local.bat
+question\start-local.bat
 ```
 
 这个脚本会：
